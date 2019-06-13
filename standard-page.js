@@ -16,15 +16,16 @@ H5P.StandardPage = (function ($, EventDispatcher) {
    * @param {Number} id Content identification
    * @returns {Object} StandardPage StandardPage instance
    */
-  function StandardPage(params, id) {
+  function StandardPage(params, id, extras) {
     EventDispatcher.call(this);
 
     this.$ = $(this);
     this.id = id;
+    this.extras = extras;
 
     // Set default behavior.
-    this.params = $.extend({}, {
-      title: 'Title',
+    this.params = $.extend({
+      title: this.getTitle(),
       elementList: [],
       helpTextLabel: 'Read more',
       helpText: 'Help text'
@@ -48,15 +49,15 @@ H5P.StandardPage = (function ($, EventDispatcher) {
     }).appendTo($container);
 
     var standardPageTemplate =
-      '<div class="page-header">' +
-      ' <div class="page-title" role="heading" tabindex="-1">{{{title}}}</div>' +
+      '<div class="page-header" role="heading" tabindex="-1">' +
+      ' <div class="page-title">{{{title}}}</div>' +
       ' <button class="page-help-text">{{{helpTextLabel}}}</button>' +
       '</div>';
 
     /*global Mustache */
     self.$inner.append(Mustache.render(standardPageTemplate, self.params));
 
-    self.$pageTitle = self.$inner.find('.page-title');
+    self.$pageTitle = self.$inner.find('.page-header');
     self.$helpButton = self.$inner.find('.page-help-text');
 
     self.createHelpTextButton();
@@ -131,6 +132,19 @@ H5P.StandardPage = (function ($, EventDispatcher) {
   };
 
   /**
+   * Mark required input fields.
+   */
+  StandardPage.prototype.markRequiredInputFields = function () {
+    this.pageInstances.forEach(function (elementInstance) {
+      if (elementInstance.libraryInfo.machineName === 'H5P.TextInputField') {
+        if (!elementInstance.isRequiredInputFilled()) {
+          elementInstance.markEmptyField();
+        }
+      }
+    });
+  };
+
+  /**
    * Sets focus on page
    */
   StandardPage.prototype.focus = function () {
@@ -142,7 +156,77 @@ H5P.StandardPage = (function ($, EventDispatcher) {
    * @returns {String} page title
    */
   StandardPage.prototype.getTitle = function () {
-    return this.params.title;
+    return H5P.createTitle((this.extras && this.extras.metadata && this.extras.metadata.title) ? this.extras.metadata.title : 'Instructions');
+  };
+
+  /**
+   * Triggers an 'answered' xAPI event for all inputs
+   */
+  StandardPage.prototype.triggerAnsweredEvents = function () {
+    this.pageInstances.forEach(function (elementInstance) {
+      if (elementInstance.triggerAnsweredEvent) {
+        elementInstance.triggerAnsweredEvent();
+      }
+    });
+  };
+
+  /**
+   * Helper function to return all xAPI data
+   * @returns {Array}
+   */
+  StandardPage.prototype.getXAPIDataFromChildren = function () {
+    var children = [];
+
+    this.pageInstances.forEach(function (elementInstance) {
+      if (elementInstance.getXAPIData) {
+        children.push(elementInstance.getXAPIData());
+      }
+    });
+
+    return children;
+  };
+
+  /**
+   * Generate xAPI object definition used in xAPI statements.
+   * @return {Object}
+   */
+  StandardPage.prototype.getxAPIDefinition = function () {
+    var definition = {};
+    var self = this;
+
+    definition.interactionType = 'compound';
+    definition.type = 'http://adlnet.gov/expapi/activities/cmi.interaction';
+    definition.description = {
+      'en-US': self.params.title
+    };
+    definition.extensions = {
+      'https://h5p.org/x-api/h5p-machine-name': 'H5P.StandardPage'
+    };
+
+    return definition;
+  };
+
+  /**
+   * Add the question itself to the definition part of an xAPIEvent
+   */
+  StandardPage.prototype.addQuestionToXAPI = function (xAPIEvent) {
+    var definition = xAPIEvent.getVerifiedStatementValue(['object', 'definition']);
+    $.extend(definition, this.getxAPIDefinition());
+  };
+
+  /**
+   * Get xAPI data.
+   * Contract used by report rendering engine.
+   *
+   * @see contract at {@link https://h5p.org/documentation/developers/contracts#guides-header-6}
+   */
+  StandardPage.prototype.getXAPIData = function () {
+    var xAPIEvent = this.createXAPIEventTemplate('compound');
+    this.addQuestionToXAPI(xAPIEvent);
+    return {
+      statement: xAPIEvent.data.statement,
+      children: this.getXAPIDataFromChildren()
+    };
   };
 
   return StandardPage;
